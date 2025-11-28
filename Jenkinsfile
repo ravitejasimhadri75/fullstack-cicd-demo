@@ -2,31 +2,38 @@ pipeline {
   agent any
 
   environment {
-    DOCKERHUB_CRED = credentials('dockerhub-creds')
-    IMAGE_NAME = "ravitejasimhadri75/fullstack-cicd-demo"
+   
+    IMAGE_REPO = "ravitejasimhadri75/fullstack-cicd-demo"
+    // Jenkins credential id for Docker registry
+    DOCKER_CRED_ID = "dockerhub-creds"
     IMAGE_TAG = "${env.BUILD_ID}"
   }
 
   tools {
-    maven 'maven3'        // name from Global Tool Configuration
-    nodejs 'node'        // name from Global Tool Configuration
+    maven 'maven3'    // must match name in Manage Jenkins -> Global Tool Configuration
+    nodejs 'node'    // optional: only required if frontend build uses node/npm
   }
 
   stages {
     stage('Checkout') {
       steps {
-        checkout([$class: 'GitSCM',
-                  branches: [[name: "*/main"]],
-                  userRemoteConfigs: [[url: 'https://github.com/ravitejasimhadri75/fullstack-cicd-demo.git', credentialsId: 'github-creds']]])
+        checkout scm
       }
     }
 
-    stage('Build Frontend') {
+    stage('Build Frontend (optional)') {
       steps {
-        dir('frontend') {
-          sh 'npm ci'
-          // if Angular CLI present: sh 'npm run build -- --prod'
-          sh 'npm run build || echo "No build script—skipping"'
+        script {
+          if (fileExists('frontend/package.json')) {
+            dir('frontend') {
+              // npm ci fails if no package-lock; adjust if needed
+              sh 'npm ci || npm install'
+              // run build if script exists
+              sh 'npm run build || echo "no frontend build script or build skipped"'
+            }
+          } else {
+            echo "No frontend found, skipping frontend stage."
+          }
         }
       }
     }
@@ -34,15 +41,17 @@ pipeline {
     stage('Build Backend') {
       steps {
         dir('backend') {
-          sh 'mvn -B clean package'
+          // create jar
+          sh 'mvn -B clean package -DskipTests=false'
         }
       }
     }
 
-    stage('Unit Tests') {
+    stage('Unit Tests (backend)') {
       steps {
         dir('backend') {
-          sh 'mvn -B test || true'
+          // run tests but don't fail entire pipeline on test failures? change as you want
+          sh 'mvn -B test'
         }
       }
     }
@@ -50,8 +59,9 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         script {
-          // assumes Dockerfile exists at repo root (or adapt path)
-          def img = docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+          // builds image using the Docker daemon available to Jenkins
+          def img = docker.build("${IMAGE_REPO}:${IMAGE_TAG}")
+          echo "Built image: ${IMAGE_REPO}:${IMAGE_TAG}"
         }
       }
     }
@@ -59,10 +69,10 @@ pipeline {
     stage('Push Docker Image') {
       steps {
         script {
-          docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
-            def img = docker.image("${IMAGE_NAME}:${IMAGE_TAG}")
+          docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CRED_ID}") {
+            def img = docker.image("${IMAGE_REPO}:${IMAGE_TAG}")
             img.push()
-            // also push latest tag
+            // push also as latest tag
             img.tag('latest')
             img.push('latest')
           }
@@ -76,10 +86,10 @@ pipeline {
       cleanWs()
     }
     success {
-      echo "Build and push successful: ${IMAGE_NAME}:${IMAGE_TAG}"
+      echo "SUCCESS: ${IMAGE_REPO}:${IMAGE_TAG} pushed."
     }
     failure {
-      echo "Build failed"
+      echo "Build FAILED. Check console log."
     }
   }
 }
