@@ -153,7 +153,7 @@ pipeline {
 				}
 			}
 		}
-	
+		}
 
     post {
         always {
@@ -167,5 +167,4 @@ pipeline {
             echo "Build FAILED. Check console log."
         }
     }
-	}
 }
