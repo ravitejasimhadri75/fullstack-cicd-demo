@@ -43,6 +43,42 @@ pipeline {
 		  }
 		}
 
+    stage('Build Frontend Docker Image') {
+    steps {
+        script {
+            echo "Building Frontend Docker Image..."
+
+            // Move into frontend so Dockerfile.frontend is found
+            dir('frontend') {
+                // Build Angular image
+                def frontendImg = docker.build("${IMAGE_REPO}-frontend:${IMAGE_TAG}", "-f Dockerfile.frontend .")
+                
+                // Store image reference for pushing in next stage
+                env.FRONTEND_IMAGE = "${IMAGE_REPO}-frontend:${IMAGE_TAG}"
+            }
+        }
+    }
+  }
+
+  stage('Push Frontend Docker Image') {
+    steps {
+        script {
+            echo "Pushing Frontend Docker Image to DockerHub..."
+
+            docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CRED_ID}") {
+
+                def img = docker.image(env.FRONTEND_IMAGE)
+
+                img.push()          // Push version tag
+                img.tag('latest')   // Also push latest
+                img.push('latest')
+            }
+        }
+    }
+}
+
+
+
 		stage('Build Backend') {
 			steps {
 				dir('backend') {
